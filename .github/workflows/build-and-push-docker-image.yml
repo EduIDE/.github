@@ -1,0 +1,412 @@
+# ==============================================================================
+# Reusable Workflow: Build and Push a multi-arch Docker image
+# ==============================================================================
+# Builds linux/amd64 and linux/arm64 on GitHub-hosted runners and publishes a
+# single multi-arch manifest. Every EduIDE container image goes through here.
+#
+# Design notes:
+#   - Both architectures are ALWAYS built, including on pull requests. A PR image
+#     that exists only for amd64 cannot be deployed to a mixed-architecture
+#     cluster, which is exactly the case for our test environments.
+#   - Runners are GitHub-hosted only. There is deliberately no execution-mode
+#     input and no self-hosted/ARC path: one way to build, so what CI proves is
+#     what ships.
+#   - Each platform builds independently and pushes by digest; the merge job
+#     assembles the manifest list. This is the standard buildx pattern and means
+#     a partial failure never publishes a half-built tag.
+#
+# Tags published (both point at the same manifest):
+#   <base_tag>              latest | pr-<N> | <release-tag> | <branch-slug> | <override>
+#   <base_tag>-<short-sha>  immutable, always safe to pin
+#
+# Usage:
+#   jobs:
+#     build:
+#       uses: EduIDE/.github/.github/workflows/build-and-push-docker-image.yml@v1
+#       with:
+#         image-name: eduide/eduide-cloud/service
+#         docker-file: dockerfiles/service/Dockerfile
+#       secrets: inherit
+# ==============================================================================
+
+name: Build and Push Docker Image
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        type: string
+        required: true
+        description: "Image path WITHOUT registry, e.g. eduide/eduide-cloud/service"
+      docker-file:
+        type: string
+        default: Dockerfile
+        description: "Path to the Dockerfile"
+      docker-context:
+        type: string
+        default: .
+        description: "Docker build context"
+      ref:
+        type: string
+        default: ''
+        description: "Branch, tag or SHA to build (default: the triggering ref)"
+      build-args:
+        type: string
+        required: false
+        description: "Newline-separated build args, e.g. BASE_IDE_TAG=latest-abc1234"
+      labels:
+        type: string
+        required: false
+        description: "Additional image labels"
+      image-tag:
+        type: string
+        default: ''
+        description: "Override the derived base tag (used by the release train)"
+      registry:
+        type: string
+        default: ghcr.io
+      cache-image:
+        type: string
+        default: ''
+        description: "Image path to store layer cache in (default: same as image-name)"
+      no-cache:
+        type: boolean
+        default: false
+        description: "Bypass the layer cache (nightly builds use this)"
+      free-disk-space:
+        type: boolean
+        default: true
+        description: "Reclaim ~30GB of preinstalled toolchains before building. Needed for the large IDE images; harmless otherwise."
+      build-amd64:
+        type: boolean
+        default: true
+      build-arm64:
+        type: boolean
+        default: true
+    outputs:
+      image_tag:
+        description: "The primary tag that was published"
+        value: ${{ jobs.setup.outputs.base_tag }}
+      base_tag:
+        description: "Same as image_tag"
+        value: ${{ jobs.setup.outputs.base_tag }}
+      sha_tag:
+        description: "Immutable <base_tag>-<short-sha> tag"
+        value: ${{ jobs.setup.outputs.sha_tag }}
+      cache_tag:
+        description: "Layer cache tag namespace"
+        value: ${{ jobs.setup.outputs.cache_tag }}
+      image_repo:
+        description: "Lower-cased owner/repository of the calling repo"
+        value: ${{ jobs.setup.outputs.image_repo }}
+    secrets:
+      registry-user:
+        required: false
+      registry-password:
+        required: false
+      docker-secrets:
+        required: false
+        description: "Build secrets, e.g. SENTRY_AUTH_TOKEN=xxx"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Derive tags once, so the build and merge jobs cannot disagree about them.
+  # ---------------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.derive.outputs.matrix }}
+      artifact_key: ${{ steps.derive.outputs.artifact_key }}
+      base_tag: ${{ steps.derive.outputs.base_tag }}
+      sha_tag: ${{ steps.derive.outputs.sha_tag }}
+      cache_tag: ${{ steps.derive.outputs.cache_tag }}
+      cache_image: ${{ steps.derive.outputs.cache_image }}
+      image_repo: ${{ steps.derive.outputs.image_repo }}
+    steps:
+      - id: derive
+        shell: bash
+        env:
+          OVERRIDE: ${{ inputs.image-tag }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          BUILD_AMD64: ${{ inputs.build-amd64 }}
+          BUILD_ARM64: ${{ inputs.build-arm64 }}
+          CACHE_IMAGE_IN: ${{ inputs.cache-image }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          # NOTE: printf, not echo. `echo | tr -c 'a-z0-9_.-' '-'` converts the
+          # trailing newline into a hyphen, which is how tags like "1.1.0-" and
+          # "1.1.0--375ef32" ended up published in GHCR. Do not reintroduce echo here.
+          slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_.-' '-'; }
+
+          SAFE_REF=$(slug "${GITHUB_REF_NAME}")
+
+          # Release tags are normalised to X.Y.Z so that a chart's appVersion and
+          # the image tag it points at are literally the same string.
+          if [[ -n "${OVERRIDE}" ]]; then
+            BASE_TAG="${OVERRIDE}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            if [[ -z "${PR_NUMBER}" ]]; then
+              echo "::error::pull_request event but no PR number available"
+              exit 1
+            fi
+            BASE_TAG="pr-${PR_NUMBER}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            if [[ -z "${RELEASE_TAG}" ]]; then
+              echo "::error::release event but release.tag_name is empty"
+              exit 1
+            fi
+            BASE_TAG=$(slug "${RELEASE_TAG#v}")
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            BASE_TAG="latest"
+          else
+            BASE_TAG="${SAFE_REF}"
+          fi
+
+          # A Docker tag must start with an alphanumeric or underscore and be
+          # <=128 chars. Malformed git tags do exist in this org (v.1.1.1,
+          # v.1.0.11 on scorpio) and would derive to ".1.1.1", which the registry
+          # rejects only at push time, after a full multi-arch build. Fail now.
+          if ! [[ "${BASE_TAG}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$ ]]; then
+            echo "::error::derived tag '${BASE_TAG}' is not a valid Docker tag."
+            echo "::error::Tags must match ^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$ - check the git tag name (expected vX.Y.Z)."
+            exit 1
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            CACHE_TAG="build-cache-pr-${PR_NUMBER}"
+          elif [[ "${BASE_TAG}" == "latest" ]]; then
+            CACHE_TAG="build-cache"
+          else
+            CACHE_TAG="build-cache-${BASE_TAG}"
+          fi
+
+          # Build the platform matrix. Both are on by default; the inputs exist
+          # only so a caller can debug a single architecture.
+          PLATFORMS=()
+          [[ "${BUILD_AMD64}" == "true" ]] && PLATFORMS+=('{"platform":"linux/amd64","arch":"amd64","runner":"ubuntu-24.04"}')
+          [[ "${BUILD_ARM64}" == "true" ]] && PLATFORMS+=('{"platform":"linux/arm64","arch":"arm64","runner":"ubuntu-24.04-arm"}')
+          if [[ ${#PLATFORMS[@]} -eq 0 ]]; then
+            echo "::error::build-amd64 and build-arm64 are both false; nothing to build"
+            exit 1
+          fi
+          JOINED=$(IFS=,; echo "${PLATFORMS[*]}")
+
+          # Several images are usually built from one caller run, and artifact
+          # names share a namespace across the whole run. Key them by image so
+          # the merge job cannot pick up another image's digests. Derived here
+          # rather than with hashFiles() because the merge job has no checkout.
+          #
+          # The trailing hash is load-bearing, not decoration. The merge job
+          # downloads by glob, so a bare slug lets one image swallow another's
+          # digests whenever one name is a prefix of another: pattern
+          # "...-eduide-eduide-c-*" also matches "...-eduide-eduide-c-templates-amd64".
+          # That is real here - c/c-templates, java-17/java-17-templates,
+          # rust/rust-no-ls - and produced a manifest containing the wrong
+          # image's digests. Every key now ends in "-<8 hex>", which no other
+          # key can prefix-match.
+          ARTIFACT_KEY="$(printf '%s' "${IMAGE_NAME}" | tr -c 'a-zA-Z0-9_.-' '-')-$(printf '%s' "${IMAGE_NAME}" | shasum -a 256 | cut -c1-8)"
+
+          {
+            echo "matrix={\"include\":[${JOINED}]}"
+            echo "artifact_key=${ARTIFACT_KEY}"
+            echo "base_tag=${BASE_TAG}"
+            echo "sha_tag=${BASE_TAG}-${SHORT_SHA}"
+            echo "cache_tag=${CACHE_TAG}"
+            echo "cache_image=${CACHE_IMAGE_IN:-$IMAGE_NAME}"
+            echo "image_repo=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### ${IMAGE_NAME}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tags | \`${BASE_TAG}\`, \`${BASE_TAG}-${SHORT_SHA}\` |"
+            echo "| Platforms | $(echo "${JOINED}" | grep -o 'linux/[a-z0-9]*' | paste -sd', ' -) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # One job per architecture. Pushes by digest only; publishes no tag.
+  # ---------------------------------------------------------------------------
+  build:
+    needs: setup
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Free disk space
+        if: ${{ inputs.free-disk-space }}
+        shell: bash
+        run: |
+          # The GitHub-hosted image ships ~30GB of toolchains we never use, and
+          # the Theia IDE images are large enough that this is the difference
+          # between a green build and ENOSPC. Best-effort: paths differ per arch.
+          echo "Before: $(df -h / | awk 'NR==2{print $4}') available"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "After:  $(df -h / | awk 'NR==2{print $4}') available"
+
+      - name: Checkout (explicit ref)
+        if: ${{ inputs.ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Checkout
+        if: ${{ inputs.ref == '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-user || github.actor }}
+          password: ${{ secrets.registry-password || secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.docker-context }}
+          file: ${{ inputs.docker-file }}
+          platforms: ${{ matrix.platform }}
+          build-args: ${{ inputs.build-args }}
+          labels: ${{ inputs.labels }}
+          secrets: ${{ secrets.docker-secrets }}
+          no-cache: ${{ inputs.no-cache }}
+          cache-from: ${{ inputs.no-cache && '' || format('type=registry,ref={0}/{1}:{2}-{3}', inputs.registry, needs.setup.outputs.cache_image, needs.setup.outputs.cache_tag, matrix.arch) }}
+          cache-to: ${{ inputs.no-cache && '' || format('type=registry,ref={0}/{1}:{2}-{3},mode=max,image-manifest=true,oci-mediatypes=true', inputs.registry, needs.setup.outputs.cache_image, needs.setup.outputs.cache_tag, matrix.arch) }}
+          outputs: type=image,name=${{ inputs.registry }}/${{ inputs.image-name }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          if [[ -z "${digest}" ]]; then
+            echo "::error::build produced no digest"
+            exit 1
+          fi
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.setup.outputs.artifact_key }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Assemble the per-architecture digests into one multi-arch manifest.
+  # ---------------------------------------------------------------------------
+  merge:
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.setup.outputs.artifact_key }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-user || github.actor }}
+          password: ${{ secrets.registry-password || secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest list
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          IMAGE: ${{ inputs.registry }}/${{ inputs.image-name }}
+          BASE_TAG: ${{ needs.setup.outputs.base_tag }}
+          SHA_TAG: ${{ needs.setup.outputs.sha_tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # mkdir, not cd into a directory that download-artifact may never have
+          # created: without this the step dies on a missing working directory
+          # before the check below can explain what actually went wrong.
+          mkdir -p digests
+          cd digests
+          digests=(*)
+          if [[ ${#digests[@]} -eq 0 ]]; then
+            echo "::error::No digests found for ${IMAGE}. Expected artifacts named"
+            echo "::error::  digests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-<key>-<arch>"
+            echo "::error::Artifact names include the run attempt, so re-running ONLY the"
+            echo "::error::merge job cannot see artifacts uploaded by a previous attempt."
+            echo "::error::Re-run all jobs instead."
+            exit 1
+          fi
+          echo "Assembling ${#digests[@]} digest(s) into ${IMAGE}:${BASE_TAG}"
+          refs=()
+          for d in "${digests[@]}"; do
+            refs+=("${IMAGE}@sha256:${d}")
+          done
+          docker buildx imagetools create \
+            -t "${IMAGE}:${BASE_TAG}" \
+            -t "${IMAGE}:${SHA_TAG}" \
+            "${refs[@]}"
+
+      - name: Verify published manifest
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.registry }}/${{ inputs.image-name }}
+          BASE_TAG: ${{ needs.setup.outputs.base_tag }}
+          EXPECT_AMD64: ${{ inputs.build-amd64 }}
+          EXPECT_ARM64: ${{ inputs.build-arm64 }}
+        run: |
+          set -euo pipefail
+          out=$(docker buildx imagetools inspect "${IMAGE}:${BASE_TAG}")
+          echo "$out"
+
+          # A silently single-arch image is the failure mode this workflow exists
+          # to prevent, so assert the manifest rather than trusting the build.
+          fail=0
+          if [[ "${EXPECT_AMD64}" == "true" ]] && ! grep -q "linux/amd64" <<< "$out"; then
+            echo "::error::${IMAGE}:${BASE_TAG} is missing linux/amd64"; fail=1
+          fi
+          if [[ "${EXPECT_ARM64}" == "true" ]] && ! grep -q "linux/arm64" <<< "$out"; then
+            echo "::error::${IMAGE}:${BASE_TAG} is missing linux/arm64"; fail=1
+          fi
+          exit $fail
+
+      - name: Summary
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.registry }}/${{ inputs.image-name }}
+          BASE_TAG: ${{ needs.setup.outputs.base_tag }}
+          SHA_TAG: ${{ needs.setup.outputs.sha_tag }}
+        run: |
+          {
+            echo ""
+            echo "Published \`${IMAGE}:${BASE_TAG}\` and \`${IMAGE}:${SHA_TAG}\` (amd64 + arm64)."
+          } >> "$GITHUB_STEP_SUMMARY"
