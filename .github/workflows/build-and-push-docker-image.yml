@@ -343,8 +343,8 @@ jobs:
           password: ${{ secrets.registry-password || secrets.GITHUB_TOKEN }}
 
       - name: Create and push manifest list
-        working-directory: ${{ runner.temp }}/digests
         shell: bash
+        working-directory: ${{ runner.temp }}
         env:
           IMAGE: ${{ inputs.registry }}/${{ inputs.image-name }}
           BASE_TAG: ${{ needs.setup.outputs.base_tag }}
@@ -352,9 +352,18 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # mkdir, not cd into a directory that download-artifact may never have
+          # created: without this the step dies on a missing working directory
+          # before the check below can explain what actually went wrong.
+          mkdir -p digests
+          cd digests
           digests=(*)
           if [[ ${#digests[@]} -eq 0 ]]; then
-            echo "::error::no digests were produced; refusing to publish an empty manifest"
+            echo "::error::No digests found for ${IMAGE}. Expected artifacts named"
+            echo "::error::  digests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-<key>-<arch>"
+            echo "::error::Artifact names include the run attempt, so re-running ONLY the"
+            echo "::error::merge job cannot see artifacts uploaded by a previous attempt."
+            echo "::error::Re-run all jobs instead."
             exit 1
           fi
           echo "Assembling ${#digests[@]} digest(s) into ${IMAGE}:${BASE_TAG}"
