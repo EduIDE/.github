@@ -1,0 +1,48 @@
+# Reusable: assign a pull request to its author.
+#
+# GitHub does NOT inherit workflows from the org .github repository - only
+# community health files (issue templates, PR template, SECURITY.md, and so on)
+# are inherited. So this cannot simply replace the copies in each repository.
+# Instead each repository keeps a short caller:
+#
+#   name: Auto Assign PR Author
+#   on:
+#     pull_request:
+#       types: [opened, reopened, ready_for_review]
+#   jobs:
+#     auto-assign:
+#       uses: EduIDE/.github/.github/workflows/auto-assign.yml@v1
+#
+# That keeps the logic in one place while respecting the platform constraint.
+
+name: Auto Assign PR Author
+
+on:
+  workflow_call:
+
+jobs:
+  auto-assign:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Auto assign PR author
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Dependabot and other bots do not benefit from being assigned.
+            const login = context.payload.pull_request.user.login;
+            if (context.payload.pull_request.user.type === 'Bot') {
+              core.info(`Skipping bot author ${login}`);
+              return;
+            }
+            if (context.payload.pull_request.assignees.length > 0) {
+              core.info('PR already has assignees; leaving them alone.');
+              return;
+            }
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              assignees: [login],
+            });
