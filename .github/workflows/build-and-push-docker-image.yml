@@ -200,7 +200,16 @@ jobs:
           # names share a namespace across the whole run. Key them by image so
           # the merge job cannot pick up another image's digests. Derived here
           # rather than with hashFiles() because the merge job has no checkout.
-          ARTIFACT_KEY=$(printf '%s' "${IMAGE_NAME}" | tr -c 'a-zA-Z0-9_.-' '-')
+          #
+          # The trailing hash is load-bearing, not decoration. The merge job
+          # downloads by glob, so a bare slug lets one image swallow another's
+          # digests whenever one name is a prefix of another: pattern
+          # "...-eduide-eduide-c-*" also matches "...-eduide-eduide-c-templates-amd64".
+          # That is real here - c/c-templates, java-17/java-17-templates,
+          # rust/rust-no-ls - and produced a manifest containing the wrong
+          # image's digests. Every key now ends in "-<8 hex>", which no other
+          # key can prefix-match.
+          ARTIFACT_KEY="$(printf '%s' "${IMAGE_NAME}" | tr -c 'a-zA-Z0-9_.-' '-')-$(printf '%s' "${IMAGE_NAME}" | shasum -a 256 | cut -c1-8)"
 
           {
             echo "matrix={\"include\":[${JOINED}]}"

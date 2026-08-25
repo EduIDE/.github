@@ -92,6 +92,42 @@ expect "no platform selected"  "ERROR build-amd64 and build-arm64 are both false
 expect "malformed tag v.1.1.1" "ERROR derived tag '.1.1.1' is not a valid Docker tag."     GITHUB_EVENT_NAME=release RELEASE_TAG=v.1.1.1
 expect "tag starting with -"   "ERROR derived tag '-nope' is not a valid Docker tag."      OVERRIDE=-nope
 
+echo
+echo "=== artifact key: no image name may prefix-match another ==="
+# The merge job downloads digests by glob. A bare slug lets one image swallow
+# another's digests when one name is a prefix of another - "...-c-*" also
+# matches "...-c-templates-amd64". That shipped once and produced manifests
+# containing the wrong image's digests for c, java-17 and rust.
+key_for() {
+  local out; out="$(mktemp)"
+  ( export GITHUB_SHA=abc1234567890 GITHUB_REF_NAME=main GITHUB_REF=refs/heads/main \
+           GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=EduIDE/Example \
+           OVERRIDE="" PR_NUMBER="" RELEASE_TAG="" BUILD_AMD64=true BUILD_ARM64=true \
+           CACHE_IMAGE_IN="" IMAGE_NAME="$1" GITHUB_OUTPUT="$out" \
+           GITHUB_STEP_SUMMARY=/dev/null
+    bash "$SCRIPT" >/dev/null 2>&1 )
+  grep '^artifact_key=' "$out" | cut -d= -f2-
+  rm -f "$out"
+}
+
+# Every colliding pair that actually exists in the EduIDE image set.
+for pair in \
+  "eduide/eduide/c:eduide/eduide/c-templates" \
+  "eduide/eduide/java-17:eduide/eduide/java-17-templates" \
+  "eduide/eduide/java-17:eduide/eduide/java-17-no-ls" \
+  "eduide/eduide/rust:eduide/eduide/rust-no-ls" \
+  "eduide/eduide/base:eduide/eduide/base-extra"
+do
+  short="${pair%%:*}"; long="${pair##*:}"
+  ks="$(key_for "$short")"; kl="$(key_for "$long")"
+  if [[ "$kl" == "$ks"* ]]; then
+    printf '  FAIL  %-42s glob "%s-*" would also match "%s"\n' "$short vs $long" "$ks" "$kl"
+    FAILED=1
+  else
+    printf '  PASS  %-42s %s  vs  %s\n' "$short vs $long" "$ks" "$kl"
+  fi
+done
+
 rm -f "$SCRIPT"
 echo
 if [[ $FAILED -eq 0 ]]; then echo "ALL PASS"; else echo "SOME FAILED"; fi
