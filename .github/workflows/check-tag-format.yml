@@ -1,0 +1,71 @@
+# Reject a git tag that does not name a version.
+#
+# The org has accumulated three spellings for the same thing - `1.1.0`,
+# `v1.1.0` and `v.1.1.1` - which is why nothing could reliably resolve "the
+# release that produced this image". One spelling is enforced from here on:
+#
+#   git tag      vX.Y.Z          v2.0.0, v2.1.0-rc.1
+#   image tag     X.Y.Z          2.0.0
+#   chart version X.Y.Z          2.0.0
+#
+# so `appVersion` and the image tag are literally the same string, and the git
+# tag is that string with a `v`. Existing history is not retagged; this only
+# stops new ones.
+#
+# Called by each repo on a tag push. Reusable rather than copied so the grammar
+# lives in one place.
+
+name: Check tag format
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to check. Defaults to the ref that triggered the caller."
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          CALLER_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          TAG="$INPUT_TAG"
+          if [[ -z "$TAG" ]]; then
+            case "$CALLER_REF" in
+              refs/tags/*) TAG="${CALLER_REF#refs/tags/}" ;;
+              *) echo "::notice::not a tag ref (${CALLER_REF}); nothing to check"; exit 0 ;;
+            esac
+          fi
+
+          echo "checking: ${TAG}"
+
+          # vMAJOR.MINOR.PATCH, optionally -prerelease and +build.
+          # Deliberately strict: no `v.`, no bare `1.1.0`, no `release-1.1.0`.
+          SEMVER='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ "$TAG" =~ $SEMVER ]]; then
+            echo "::notice::${TAG} is a valid release tag"
+            exit 0
+          fi
+
+          echo "::error::'${TAG}' is not a valid release tag."
+          echo "::error::Expected vMAJOR.MINOR.PATCH, e.g. v2.0.0 or v2.1.0-rc.1."
+          case "$TAG" in
+            v.*)   echo "::error::  '${TAG}' has a dot after the v. Use v${TAG#v.}" ;;
+            [0-9]*) echo "::error::  '${TAG}' is missing the leading v. Use v${TAG}" ;;
+            V*)    echo "::error::  the v is lowercase. Use v${TAG#V}" ;;
+          esac
+          echo "::error::The image tag and chart version are the same string without the v,"
+          echo "::error::so a tag that does not parse leaves nothing able to resolve which"
+          echo "::error::release produced a given image."
+          exit 1

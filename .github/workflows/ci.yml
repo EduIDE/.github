@@ -32,3 +32,15 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
       - name: Run tests
         run: ./tests/test-derive-tags.sh
+
+  tag-format:
+    name: Tag format tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Run tests
+        run: ./tests/test-tag-format.sh
