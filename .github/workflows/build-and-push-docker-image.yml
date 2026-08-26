@@ -73,6 +73,14 @@ on:
         type: boolean
         default: false
         description: "Bypass the layer cache (nightly builds use this)"
+      stamp-app-version:
+        type: boolean
+        default: false
+        description: |
+          Append APP_VERSION=<derived tag> to build-args. Use for images whose
+          build embeds a version (the Java services stamp it into the jar), so
+          the version inside the image matches the tag on the outside. The tag
+          is the derived one, with any leading v already stripped.
       free-disk-space:
         type: boolean
         default: true
@@ -287,7 +295,9 @@ jobs:
           context: ${{ inputs.docker-context }}
           file: ${{ inputs.docker-file }}
           platforms: ${{ matrix.platform }}
-          build-args: ${{ inputs.build-args }}
+          build-args: |
+            ${{ inputs.build-args }}
+            ${{ inputs.stamp-app-version && format('APP_VERSION={0}', needs.setup.outputs.base_tag) || '' }}
           labels: ${{ inputs.labels }}
           secrets: ${{ secrets.docker-secrets }}
           no-cache: ${{ inputs.no-cache }}
