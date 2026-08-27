@@ -1,0 +1,266 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "EduIDE org-wide Renovate policy. Single source of truth for every repo.",
+    "Consume it with: { \"extends\": [\"local>EduIDE/.github:renovate-config\"] }",
+    "Policy: no automerge anywhere. Security fixes raised immediately, everything else batched Monday morning.",
+    "See renovate/README.md in this repo for how to change or test this file."
+  ],
+
+  "extends": [
+    "config:recommended",
+    ":semanticCommitTypeAll(chore)",
+    "abandonments:recommended",
+    "customManagers:githubActionsVersions",
+    "customManagers:dockerfileVersions"
+  ],
+
+  "timezone": "Europe/Berlin",
+  "schedule": ["* 0-6 * * 1"],
+
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dependency Dashboard",
+  "dependencyDashboardLabels": ["dependencies", "renovate"],
+  "dependencyDashboardOSVVulnerabilitySummary": "unresolved",
+
+  "labels": ["dependencies"],
+  "semanticCommits": "enabled",
+
+  "automerge": false,
+  "platformAutomerge": false,
+
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "branchConcurrentLimit": 8,
+
+  "minimumReleaseAge": "5 days",
+  "internalChecksFilter": "strict",
+
+  "rangeStrategy": "auto",
+  "postUpdateOptions": ["gomodTidy"],
+  "separateMajorMinor": true,
+  "separateMultipleMajor": false,
+  "separateMinorPatch": false,
+
+  "pinDigests": false,
+  "updatePinnedDependencies": true,
+  "configMigration": true,
+
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "Security fixes bypass the Monday schedule and the release-age quarantine. Rate limits are bypassed unconditionally by Renovate itself.",
+    "enabled": true,
+    "schedule": [],
+    "minimumReleaseAge": null,
+    "dependencyDashboardApproval": false,
+    "prCreation": "immediate",
+    "commitMessagePrefix": "fix(security):",
+    "addLabels": ["security"],
+    "automerge": false
+  },
+
+  "lockFileMaintenance": {
+    "description": "Monthly sweep so in-range (caret) updates still reach the lockfiles. Load-bearing: with rangeStrategy auto, this is the only path for them.",
+    "enabled": true,
+    "schedule": ["* 0-6 1 * *"],
+    "minimumReleaseAge": null,
+    "commitMessageAction": "Refresh",
+    "automerge": false
+  },
+
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/__tests__/**",
+    "**/__fixtures__/**",
+    "**/.worktrees/**",
+    "**/.vscode-test/**",
+    "**/.vscode-test-web/**",
+    "**/.docusaurus/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/out/**"
+  ],
+
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "EduIDE-deployment pins the student IDE images as plain YAML list items under preloading.images. The helm-values manager only understands image dicts and scalars, so without this they would never be updated.",
+      "managerFilePatterns": ["/^deployments/.+/values\\.ya?ml$/"],
+      "matchStrings": [
+        "-\\s+(?<depName>ghcr\\.io/[^\\s:\"']+):(?<currentValue>[^\\s\"']+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "theiaPlugins in EduIDE/package.json pins plugin tarballs by GitHub release URL. No built-in manager reads custom manifest keys.",
+      "managerFilePatterns": ["/(^|/)package\\.json$/"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/releases/download/(?<currentValue>[^/\"]+)/"
+      ],
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+
+  "packageRules": [
+    {
+      "description": "Never bump engines.* - these are compatibility floors, not dependencies.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
+      "description": "@types/vscode must stay in lockstep with engines.vscode - raise both by hand.",
+      "matchPackageNames": ["@types/vscode"],
+      "enabled": false
+    },
+    {
+      "description": "Never bump the go / toolchain directive in go.mod.",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "enabled": false
+    },
+    {
+      "description": "Anything on a -SNAPSHOT is built in-repo, not resolved from a registry.",
+      "matchCurrentValue": "/-SNAPSHOT$/",
+      "enabled": false
+    },
+    {
+      "description": "Internal Theia Cloud Java modules are reactor modules, not external deps.",
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["/^org\\.eclipse\\.theia\\.cloud:/"],
+      "enabled": false
+    },
+    {
+      "description": "Pin / digest / rollback updates have no release timestamp, so exempt them from the quarantine.",
+      "matchUpdateTypes": ["pin", "pinDigest", "digest", "rollback"],
+      "minimumReleaseAge": null
+    },
+
+    {
+      "description": "All GitHub Actions in one PR.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "github actions",
+      "groupSlug": "github-actions",
+      "semanticCommitType": "ci",
+      "addLabels": ["github-actions"]
+    },
+    {
+      "description": "All non-major npm devDependencies in one PR.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies", "optionalDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin"],
+      "groupName": "npm dev dependencies",
+      "groupSlug": "npm-dev",
+      "addLabels": ["javascript"]
+    },
+    {
+      "description": "All non-major npm runtime dependencies in one PR.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies", "peerDependencies", "resolutions", "overrides"],
+      "matchUpdateTypes": ["minor", "patch", "pin"],
+      "groupName": "npm dependencies",
+      "groupSlug": "npm-prod",
+      "addLabels": ["javascript"]
+    },
+    {
+      "description": "All non-major JVM dependencies in one PR.",
+      "matchManagers": ["maven", "maven-wrapper", "gradle", "gradle-wrapper"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "java dependencies",
+      "groupSlug": "java",
+      "addLabels": ["java"]
+    },
+    {
+      "description": "All non-major Go modules in one PR.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go modules",
+      "groupSlug": "gomod",
+      "addLabels": ["go"]
+    },
+    {
+      "description": "Container base images from Dockerfiles and compose files in one PR.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "container base images",
+      "groupSlug": "docker",
+      "addLabels": ["docker"]
+    },
+    {
+      "description": "Helm chart dependencies from Chart.yaml in one PR.",
+      "matchManagers": ["helmv3", "helmfile"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "helm charts",
+      "groupSlug": "helm",
+      "addLabels": ["helm"]
+    },
+    {
+      "description": "Image tags in values.yaml decide what actually runs - keep them apart from chart dependency bumps so one can be reverted without the other. Matched by path as well as manager, because the preloading.images list is picked up by a custom regex manager and must land in the same group.",
+      "matchManagers": ["helm-values"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "deployed image tags",
+      "groupSlug": "helm-values",
+      "addLabels": ["helm", "deployment"]
+    },
+    {
+      "description": "The preloading.images list entries, same group as the rest of the deployed image tags.",
+      "matchFileNames": ["deployments/**"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "groupName": "deployed image tags",
+      "groupSlug": "helm-values",
+      "addLabels": ["helm", "deployment"]
+    },
+    {
+      "description": "Tool versions pinned via '# renovate:' comments in workflows and Dockerfiles ride along with their ecosystem group.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [".github/workflows/**", "**/Dockerfile*", "**/*.Dockerfile*"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "pinned tool versions",
+      "groupSlug": "tool-versions",
+      "addLabels": ["tooling"]
+    },
+    {
+      "description": "Terraform providers, modules and helm_release charts in one PR.",
+      "matchManagers": ["terraform", "terraform-version"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "terraform",
+      "groupSlug": "terraform",
+      "addLabels": ["terraform"]
+    },
+
+    {
+      "description": "Majors get their own PR, and only appear once a human ticks the box on the Dependency Dashboard.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "minimumReleaseAge": "14 days",
+      "addLabels": ["major"]
+    },
+
+    {
+      "description": "Eclipse Theia is a monorepo Renovate does not know about - these must move as one, majors included.",
+      "matchPackageNames": ["@theia/**", "@eclipse-theia/**", "@eclipse-theiacloud/**"],
+      "groupName": "eclipse theia",
+      "groupSlug": "theia",
+      "dependencyDashboardApproval": true,
+      "addLabels": ["theia"]
+    },
+    {
+      "description": "Quarkus platform BOM and extensions must move as one.",
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["/^io\\.quarkus[.:]/"],
+      "groupName": "quarkus",
+      "groupSlug": "quarkus",
+      "addLabels": ["java"]
+    },
+    {
+      "description": "First-party EduIDE artifacts follow our own release train - no supply-chain quarantine.",
+      "matchPackageNames": ["ghcr.io/eduide/**", "theiacloud/**"],
+      "minimumReleaseAge": null,
+      "addLabels": ["eduide"]
+    }
+  ]
+}
