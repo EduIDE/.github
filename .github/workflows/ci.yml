@@ -10,6 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  renovate-config:
+    name: Validate shared Renovate config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # renovate-config.json is extended by every repo in the org, so a typo here
+      # breaks all of them at once. The version is pinned deliberately: an
+      # unpinned `npx renovate` resolves to whatever is in the npx cache, which
+      # is how you end up validating against a release that predates the options
+      # you are using.
+      - name: Validate
+        env:
+          # renovate: datasource=npm depName=renovate
+          RENOVATE_VERSION: "44.46.7"
+        run: |
+          set -euo pipefail
+          npx --yes --package "renovate@${RENOVATE_VERSION}" -- \
+            renovate-config-validator --strict renovate-config.json
+
   lint:
     name: actionlint
     runs-on: ubuntu-latest

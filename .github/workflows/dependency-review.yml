@@ -1,0 +1,34 @@
+name: Dependency Review
+
+# Fails a PR that introduces a dependency with a known advisory. Renovate tells
+# you about vulnerabilities you already have; this catches the ones a PR is
+# about to add. Public repos only - the underlying API needs GitHub Advanced
+# Security on private repos.
+#
+# Call it from a repo like this:
+#
+#   jobs:
+#     dependency-review:
+#       uses: EduIDE/.github/.github/workflows/dependency-review.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-severity:
+        description: "Minimum severity that fails the check (low, moderate, high, critical)"
+        required: false
+        default: high
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: ${{ inputs.fail-on-severity }}
