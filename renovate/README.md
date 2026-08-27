@@ -93,15 +93,21 @@ in the npx cache, which may be years old and will reject options that are perfec
 
 ## Custom managers
 
-Two things in this org are invisible to Renovate's built-in managers:
+Some things in this org are invisible to Renovate's built-in managers and need a regex
+manager. One lives here, one lives in a repo:
 
-- **`EduIDE-deployment/deployments/*/values.yaml`** pins the student IDE images as a plain
-  YAML list under `preloading.images:`. The `helm-values` manager only understands
-  `image: {repository, tag}` dicts and `image: repo:tag` scalars, so a regex manager covers
-  the list form. These are the images students actually run, so this is the highest-value
-  update surface in the org.
-- **`EduIDE/package.json` `theiaPlugins`** pins plugin tarballs by URL. No manager reads
-  custom manifest keys.
+- **`EduIDE/package.json` `theiaPlugins`** pins plugin tarballs by GitHub release URL. No
+  built-in manager reads custom manifest keys. Covered by the preset.
+- **`EduIDE-deployment/environments/*/env.yaml`** carries `spec.platform.chartVersion`.
+  These are `eduide.dev/v1 Environment` manifests, so neither `helmv3` nor `helm-values`
+  can read them. Covered by that repo's own `renovate.json`, since the file shape is
+  specific to it.
+
+**Before adding a manager here, check the path still exists.** The preset briefly shipped a
+manager for `deployments/*/values.yaml` in EduIDE-deployment, matching a `preloading.images`
+list. That layout had been replaced by `environments/` a day earlier, so the manager matched
+nothing. A regex that matches nothing looks exactly like a regex that found nothing to
+update - the only way to tell them apart is a dry run.
 
 ### Known gap: open-vsx
 
