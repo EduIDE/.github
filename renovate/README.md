@@ -117,6 +117,26 @@ tracked and must be bumped by hand. The only way to automate it today is a
 `customDatasources` entry against the open-vsx API, which is still flagged experimental
 upstream; not worth the fragility for two pins. Revisit if open-vsx support lands.
 
+## A repo shows "disabled" in the Mend portal
+
+Two different causes, and only one of them is fixable in git.
+
+**It is a fork.** Renovate skips forked repositories by default in autodiscover mode, which is
+how the hosted app runs - a valid `renovate.json` does not override this. `EduIDE`,
+`EduIDE-Cloud` and `EduIDE-Helm` are forks. The preset sets `"forkProcessing": "enabled"` to
+cover them. That is safe only while the app installation is scoped to a **selected**
+repository list; if someone widens it to "All repositories", this setting would also start
+processing genuine upstream mirrors like `theia`.
+
+**Someone closed its onboarding PR.** Renovate reads a human closing a "Configure Renovate"
+PR as declining, and records that against the repo in the Mend portal. This lives in Mend's
+database, not in the repo, so **no config change clears it** - re-enable the repo at
+<https://developer.mend.io/github/EduIDE>. `EduIDE-deployment` (#40) and
+`EduIDE-Landing-Page` (#4) were both declined this way before the current rollout.
+
+Note that Renovate *auto*-closing an onboarding PR is different and harmless - it does that
+when it finds a repo is already onboarded, and it does not disable anything.
+
 ## Things that are deliberate, not oversights
 
 - **`pinDigests` is off.** Several workflows call `ls1intum/.github/...@feature/...`, which
