@@ -29,16 +29,11 @@ jobs:
           npx --yes --package "renovate@${RENOVATE_VERSION}" -- \
             renovate-config-validator --strict renovate-config.json
 
-  lint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run actionlint
-        run: |
-          set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash)
-          ./actionlint -color
+  # Runs the shared hygiene workflow from this checkout, so a change to it is
+  # exercised here before any repository picks it up through @v1. It runs
+  # actionlint over this repository's workflows too.
+  hygiene:
+    uses: ./.github/workflows/hygiene.yml
 
   test:
     name: Tag derivation tests
@@ -63,3 +58,15 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
       - name: Run tests
         run: ./tests/test-tag-format.sh
+
+  release-checks:
+    name: Release check tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Run tests
+        run: ./tests/test-release-checks.sh

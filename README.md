@@ -4,6 +4,76 @@ Org-level defaults and shared reusable workflows for the [EduIDE](https://github
 
 ## Reusable workflows
 
+Every repository runs the same baseline:
+
+| Workflow file in the repository | Calls | Runs |
+|---|---|---|
+| `hygiene.yml` | `hygiene.yml@v1` | actionlint, dependency review (PRs only), tag format (tags only), AGENTS.md path check |
+| `auto-assign.yml` | `auto-assign.yml@v1` | assigns a PR to its author |
+| image builds | `build-and-push-docker-image.yml@v1` | multi-arch images |
+| chart releases | `chart-release-checks.yml@v1` | chart version bump and publish guard |
+
+Workflows set a top-level `permissions: contents: read` and widen it per job.
+Callers pin `@v1`.
+
+### `hygiene.yml`
+
+The checks every repository runs, with their guards inside the reusable
+workflow so a caller cannot run them at the wrong time. The caller is the
+whole file:
+
+```yaml
+name: Hygiene
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hygiene:
+    uses: EduIDE/.github/.github/workflows/hygiene.yml@v1
+```
+
+| Job | Runs on | Why it is guarded |
+|---|---|---|
+| actionlint | PRs and pushes, not tags | |
+| Dependency review | PRs only | on a push there is no base to compare, so it fails. That kept Landing-Page and Docs red on `main` |
+| Tag format | tag pushes only | enforces `vX.Y.Z` through `check-tag-format.yml` |
+| AGENTS.md references | PRs and pushes, not tags | runs `scripts/check-agents-md.sh` when the repository has one. No path filter: a PR that deletes a path AGENTS.md names must fail before the merge, not after |
+
+Input: `fail-on-severity` (default `high`).
+
+### `auto-assign.yml`
+
+Assigns a PR to its author, skipping bots and PRs that already have assignees.
+GitHub does not inherit workflows from the org `.github` repository, so each
+repository keeps the short caller shown in the file's header. The caller grants
+`pull-requests: write`.
+
+### `chart-release-checks.yml`
+
+A chart change always ships under a new version, and a published version is
+never overwritten:
+
+- on a **pull request**, every changed chart must carry a version newer than the base branch;
+- on a **push**, a changed chart whose version is already published fails. Give the publishing job `needs:` on this one.
+
+```yaml
+jobs:
+  chart-checks:
+    uses: EduIDE/.github/.github/workflows/chart-release-checks.yml@v1
+    with:
+      charts: charts/eduide charts/eduide-cluster
+  release:
+    needs: chart-checks
+```
+
+Inputs: `charts` (space-separated chart directories), `registry` (default
+`oci://ghcr.io/eduide/charts`).
+
 ### `build-and-push-docker-image.yml`
 
 Builds a container image for **linux/amd64 and linux/arm64** on GitHub-hosted
@@ -65,6 +135,11 @@ token), and `docker-secrets` for build-time secrets such as `SENTRY_AUTH_TOKEN`.
 - **The manifest is verified after publishing.** A silently single-architecture
   image is the failure this workflow exists to prevent, so the merge job asserts
   the platforms are actually present rather than trusting the build.
+- **Version tags are immutable.** A derived tag that looks like `X.Y.Z` fails the
+  build when it is already published from a different commit. `latest`, `pr-N`,
+  `nightly` and branch tags still move. Rebuilding the same commit stays allowed,
+  so a re-run works, and so does the release event that follows a release train
+  build. The check compares the `<tag>-<sha7>` tag, so it needs no image labels.
 - **`printf`, not `echo`, when slugging tags.** `echo | tr -c` turns the trailing
   newline into a hyphen. That bug published `1.1.0-` and `1.1.0--375ef32` to
   GHCR before this workflow existed; `tests/test-derive-tags.sh` guards it.
@@ -72,11 +147,14 @@ token), and `docker-secrets` for build-time secrets such as `SENTRY_AUTH_TOKEN`.
 ## Tests
 
 ```bash
-./tests/test-derive-tags.sh   # requires yq
+./tests/test-derive-tags.sh      # requires yq
+./tests/test-tag-format.sh       # requires yq
+./tests/test-release-checks.sh   # requires yq and git
 ```
 
-The test extracts the tag-derivation shell directly out of the workflow YAML and
-executes it, so it cannot drift from what runs in CI.
+The tests extract the shell directly out of the workflow YAML and execute it,
+so they cannot drift from what runs in CI. `test-release-checks.sh` replaces
+`docker` and `helm` with stubs that answer from a list of published references.
 
 ## Versioning
 

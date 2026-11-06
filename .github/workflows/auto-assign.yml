@@ -9,11 +9,15 @@
 #   on:
 #     pull_request:
 #       types: [opened, reopened, ready_for_review]
+#   permissions:
+#     pull-requests: write
 #   jobs:
 #     auto-assign:
 #       uses: EduIDE/.github/.github/workflows/auto-assign.yml@v1
 #
 # That keeps the logic in one place while respecting the platform constraint.
+# The caller grants pull-requests: write because a called workflow can never
+# have more permissions than its caller.
 
 name: Auto Assign PR Author
 
