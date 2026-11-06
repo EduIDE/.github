@@ -5,11 +5,14 @@ name: Dependency Review
 # about to add. Public repos only - the underlying API needs GitHub Advanced
 # Security on private repos.
 #
-# Call it from a repo like this:
+# Repositories get this through hygiene.yml, which also makes sure it only
+# runs on pull requests. Call it directly only if a repository needs a
+# different severity per job:
 #
 #   jobs:
 #     dependency-review:
-#       uses: EduIDE/.github/.github/workflows/dependency-review.yml@main
+#       if: github.event_name == 'pull_request'
+#       uses: EduIDE/.github/.github/workflows/dependency-review.yml@v1
 
 on:
   workflow_call:

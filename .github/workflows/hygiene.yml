@@ -1,0 +1,88 @@
+# Reusable: the checks every EduIDE repository runs, wired the same way.
+#
+# Each repository used to keep its own copies of these, guarded differently.
+# dependency-review ran on pushes in some of them, where it can only fail, and
+# kept two main branches red for weeks. The AGENTS.md check ran only on PRs
+# that touched AGENTS.md, so a PR that deleted a referenced path passed and
+# main went red after the merge. The guards live here now, so a caller cannot
+# get them wrong.
+#
+#   actionlint          every PR and push to main
+#   dependency-review   pull requests only
+#   tag-format          tag pushes only
+#   agents-md           every PR and push to main, if scripts/check-agents-md.sh exists
+#
+# Caller (the whole file):
+#
+#   name: Hygiene
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#       tags: ['*']
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     hygiene:
+#       uses: EduIDE/.github/.github/workflows/hygiene.yml@v1
+
+name: Hygiene
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-severity:
+        description: "Minimum advisory severity that fails dependency review (low, moderate, high, critical)"
+        required: false
+        default: high
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint
+          ACTIONLINT_VERSION: "1.7.7"
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "${ACTIONLINT_VERSION}"
+          ./actionlint -color
+
+  dependency-review:
+    name: Dependency review
+    # The action compares the PR's head with its base. On a push there is
+    # nothing to compare, so it fails instead of reviewing.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: ${{ inputs.fail-on-severity }}
+
+  tag-format:
+    if: github.ref_type == 'tag'
+    uses: EduIDE/.github/.github/workflows/check-tag-format.yml@v1
+
+  agents-md:
+    name: AGENTS.md references
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check
+        run: |
+          if [[ ! -f scripts/check-agents-md.sh ]]; then
+            echo "::notice::no scripts/check-agents-md.sh in this repository; nothing to check"
+            exit 0
+          fi
+          bash scripts/check-agents-md.sh

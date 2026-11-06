@@ -1,0 +1,119 @@
+# Reusable: a chart change always ships under a new version.
+#
+# Publishing a chart version that already exists either overwrites it, so two
+# different charts carry one version, or gets skipped, so a merged fix never
+# ships. EduIDE-Helm#52 merged without a bump and its fix missed chart 2.5.1
+# that way. Published versions are immutable here, and a mistake fails loudly:
+#
+#   pull request   every changed chart must carry a version newer than the base
+#   push           a changed chart whose version is already published fails,
+#                  so run the publishing job with `needs:` on this one
+#
+# Caller:
+#
+#   jobs:
+#     chart-checks:
+#       uses: EduIDE/.github/.github/workflows/chart-release-checks.yml@v1
+#       with:
+#         charts: charts/eduide charts/eduide-cluster
+#     release:
+#       needs: chart-checks
+#       ...
+
+name: Chart release checks
+
+on:
+  workflow_call:
+    inputs:
+      charts:
+        description: "Space-separated chart directories, e.g. 'charts/eduide charts/eduide-cluster' or 'chart'"
+        required: true
+        type: string
+      registry:
+        description: "OCI repository the charts are published to"
+        required: false
+        default: oci://ghcr.io/eduide/charts
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Chart version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Check
+        env:
+          CHARTS: ${{ inputs.charts }}
+          REGISTRY: ${{ inputs.registry }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              git fetch --quiet origin "$BASE_REF"
+              base="origin/$BASE_REF"
+              range="$base...HEAD"
+              ;;
+            push)
+              if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+                echo "::notice::no previous commit to compare with; nothing to check"
+                exit 0
+              fi
+              range="$BEFORE..HEAD"
+              echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+              ;;
+            *)
+              echo "::notice::${GITHUB_EVENT_NAME} has nothing to compare with; nothing to check"
+              exit 0
+              ;;
+          esac
+
+          version_of() { awk '/^version:/ {print $2; exit}'; }
+
+          failed=0
+          for chart in $CHARTS; do
+            # A trailing slash turns the lookup below into chart//Chart.yaml,
+            # which git rejects. That made Helm's old check pass everything.
+            chart="${chart%/}"
+            name="$(awk '/^name:/ {print $2; exit}' "$chart/Chart.yaml")"
+            new="$(version_of < "$chart/Chart.yaml")"
+
+            if git diff --quiet "$range" -- "$chart"; then
+              echo "  $name: unchanged"
+              continue
+            fi
+
+            if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+              old="$(git show "$base:$chart/Chart.yaml" 2>/dev/null | version_of)" || old=""
+              if [[ -z "$old" ]]; then
+                echo "  $name: new chart at $new"
+              elif [[ "$old" == "$new" ]]; then
+                echo "::error file=$chart/Chart.yaml::$name changed but its version is still $old. Bump it: a published version is never overwritten, so this change would never ship."
+                failed=1
+              else
+                echo "  $name: $old -> $new"
+              fi
+            elif helm show chart "$REGISTRY/$name" --version "$new" >/dev/null 2>&1; then
+              echo "::error file=$chart/Chart.yaml::$name changed in this push but $new is already published. Bump the version in a new pull request; the published chart is never overwritten."
+              failed=1
+            else
+              echo "  $name: $new not published yet"
+            fi
+          done
+          exit $failed
