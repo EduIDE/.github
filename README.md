@@ -119,7 +119,8 @@ candidate without a section of its own falls back to `## [Unreleased]`.
 **Reruns:** "Re-run failed jobs" keeps the draft of the first attempt. A new
 dispatch of the same version replaces a leftover draft of that tag, so drafts
 never pile up. Asset uploads (`gh release upload`) and `gh release view` work
-on a draft by tag name.
+on a draft by tag name, but only for a job with `contents: write`: a draft is
+invisible to a read-only token.
 
 A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
 caller must run its publish jobs itself.
