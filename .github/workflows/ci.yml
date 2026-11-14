@@ -23,7 +23,7 @@ jobs:
       - name: Validate
         env:
           # renovate: datasource=npm depName=renovate
-          RENOVATE_VERSION: "44.46.7"
+          RENOVATE_VERSION: "44.223.0"
         run: |
           set -euo pipefail
           npx --yes --package "renovate@${RENOVATE_VERSION}" -- \
