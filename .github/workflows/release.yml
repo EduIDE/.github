@@ -1,0 +1,198 @@
+# Reusable release workflow: validate a version, take the release notes from
+# CHANGELOG.md, create the tag and the GitHub Release. Called by the thin,
+# manually dispatched release.yml of each repository, which then runs its own
+# build, publish and verify jobs with `needs: release`.
+#
+#   jobs:
+#     release:
+#       uses: EduIDE/.github/.github/workflows/release.yml@main
+#       permissions:
+#         contents: write
+#       with:
+#         version: ${{ inputs.version }}
+#         tag_prefix: "v"
+#
+# A tag or Release created with GITHUB_TOKEN starts no other workflow, so
+# everything a release needs must be called from the caller's release.yml.
+
+name: Release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "X.Y.Z or X.Y.Z-rc.N, without a leading v"
+        required: true
+        type: string
+      tag_prefix:
+        description: "Tag is tag_prefix + version, e.g. v or eduide-shared-cache-"
+        required: false
+        type: string
+        default: "v"
+      changelog_path:
+        required: false
+        type: string
+        default: CHANGELOG.md
+      changelog_heading:
+        description: "Heading of the version section; {version} is replaced"
+        required: false
+        type: string
+        default: "## [{version}]"
+      version_check:
+        description: "Optional bash run in the checkout with $VERSION set; non-zero exit fails. Skipped for release candidates."
+        required: false
+        type: string
+        default: ""
+    outputs:
+      tag:
+        description: "Full tag name"
+        value: ${{ jobs.release.outputs.tag }}
+      prerelease:
+        description: "true or false"
+        value: ${{ jobs.release.outputs.prerelease }}
+      sha:
+        description: "Released commit"
+        value: ${{ jobs.release.outputs.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version, tag and order
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: |
+          set -euo pipefail
+
+          # X.Y.Z or X.Y.Z-rc.N, no leading v. Anything else is refused.
+          key() {
+            [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.([1-9][0-9]*))?$ ]] || return 1
+            # A stable version sorts after all of its release candidates.
+            echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[5]:-999999999}"
+          }
+          # Succeeds when $1 is a newer version than $2.
+          newer() {
+            local -a a b
+            read -ra a <<<"$(key "$1")"
+            read -ra b <<<"$(key "$2")"
+            for i in 0 1 2 3; do
+              (( a[i] > b[i] )) && return 0
+              (( a[i] < b[i] )) && return 1
+            done
+            return 1
+          }
+          # Highest version on stdin; lines that are not X.Y.Z(-rc.N) are skipped.
+          highest() {
+            local best="" v
+            while read -r v; do
+              key "$v" >/dev/null || continue
+              if [[ -z "$best" ]] || newer "$v" "$best"; then best="$v"; fi
+            done
+            echo "$best"
+          }
+
+          if ! key "$VERSION" >/dev/null; then
+            echo "::error::'$VERSION' is not X.Y.Z or X.Y.Z-rc.N (no leading v)."
+            exit 1
+          fi
+
+          prerelease=false
+          [[ "$VERSION" == *-rc.* ]] && prerelease=true
+
+          if [[ "$prerelease" == false && "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::A stable release runs from main only, this run is on $GITHUB_REF. Dispatch it from main, or release an -rc.N."
+            exit 1
+          fi
+
+          tag="${TAG_PREFIX}${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists. Versions are never reused; pick the next one."
+            exit 1
+          fi
+
+          # Old tags in other spellings (1.1.0, v.1.2.2, -sec.N) are ignored.
+          versions=$(git tag -l "${TAG_PREFIX}*" | sed "s|^${TAG_PREFIX}||")
+          last_stable=$(grep -v -- '-' <<<"$versions" | highest || true)
+          if [[ -n "$last_stable" ]] && ! newer "$VERSION" "$last_stable"; then
+            echo "::error::${VERSION} is not newer than the last release ${last_stable}."
+            exit 1
+          fi
+          if [[ "$prerelease" == true ]]; then
+            last_rc=$(grep -F -- "${VERSION%%-*}-rc." <<<"$versions" | highest || true)
+            if [[ -n "$last_rc" ]] && ! newer "$VERSION" "$last_rc"; then
+              echo "::error::${VERSION} is not newer than the last release candidate ${last_rc}."
+              exit 1
+            fi
+          fi
+
+          echo "::notice::Releasing ${tag} from ${GITHUB_SHA::7} (last stable: ${last_stable:-none}, prerelease: ${prerelease})"
+          {
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "sha=$GITHUB_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      # A release candidate is not checked: its publish steps stamp the version.
+      - name: Version files match
+        if: steps.version.outputs.prerelease == 'false' && inputs.version_check != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          VERSION_CHECK: ${{ inputs.version_check }}
+        run: bash -euo pipefail -c "$VERSION_CHECK"
+
+      - name: Release notes from the changelog
+        env:
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          CHANGELOG: ${{ inputs.changelog_path }}
+          HEADING: ${{ inputs.changelog_heading }}
+        run: |
+          set -euo pipefail
+          # The body of the section whose heading starts with $1, up to the next "## " heading.
+          section() {
+            awk -v h="$1" 'index($0, h) == 1 { found = 1; next } found && /^## / { exit } found' "$CHANGELOG"
+          }
+          heading="${HEADING//\{version\}/$VERSION}"
+          section "$heading" > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" && [[ "$PRERELEASE" == true ]]; then
+            # A release candidate usually has no section of its own yet.
+            { echo "Release candidate. Changes since the last release:"; echo; section "## [Unreleased]"; } > "$RUNNER_TEMP/notes.md"
+          fi
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error file=${CHANGELOG}::No '${heading}' section with content. Add it in the release pull request."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+
+      # --target creates the tag server side on the dispatched commit, so no
+      # git identity and no push are needed. A prerelease is never "latest".
+      - name: Tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags=()
+          [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "${flags[@]}"

@@ -69,6 +69,40 @@ token), and `docker-secrets` for build-time secrets such as `SENTRY_AUTH_TOKEN`.
   newline into a hyphen. That bug published `1.1.0-` and `1.1.0--375ef32` to
   GHCR before this workflow existed; `tests/test-derive-tags.sh` guards it.
 
+### `release.yml`
+
+Validates a version, takes the release notes from `CHANGELOG.md`, then creates
+the tag and the GitHub Release. Each repository has a thin `release.yml`
+(`workflow_dispatch`, input `version`) that calls it and then runs its own
+build, publish and verify jobs with `needs: release`.
+
+```yaml
+jobs:
+  release:
+    uses: EduIDE/.github/.github/workflows/release.yml@main
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}   # X.Y.Z or X.Y.Z-rc.N, no leading v
+      tag_prefix: "v"
+      changelog_heading: "## [{version}]"
+```
+
+**Inputs:** `version` (required), `tag_prefix` (default `v`), `changelog_path`
+(default `CHANGELOG.md`), `changelog_heading` (default `## [{version}]`,
+`{version}` is replaced), `version_check` (optional bash run in the checkout
+with `$VERSION` set; a non-zero exit fails; skipped for release candidates).
+
+**Outputs:** `tag`, `prerelease` (`true`/`false`), `sha`.
+
+**Refuses:** a malformed version, an existing tag, a version not newer than the
+last release with the same prefix, a stable version dispatched from a branch
+other than `main`, and a missing or empty CHANGELOG section. A release
+candidate without a section of its own falls back to `## [Unreleased]`.
+
+A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
+caller must run its publish jobs itself.
+
 ## Tests
 
 ```bash
