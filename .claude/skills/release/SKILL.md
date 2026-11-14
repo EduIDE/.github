@@ -10,7 +10,7 @@ This repository has no `release.yml` and no versions. Consumers pin a moving ref
 | Ref | Used by |
 |---|---|
 | `@v1` | `build-and-push-docker-image.yml`, `dependency-review.yml` in EduIDE, EduIDE-Cloud, EduIDE-Helm, EduIDE-Landing-Page, EduIDE-deployment, workspace-garbage-collector, EduIDE-shared-cache, keycloak-theme |
-| `@main` | `release.yml` (reusable release workflow), `check-tag-format.yml`, Renovate preset `local>EduIDE/.github:renovate-config` |
+| `@main` | `release.yml` and `release-publish.yml` (reusable release workflows), `check-tag-format.yml`, Renovate preset `local>EduIDE/.github:renovate-config` |
 
 "Releasing" means moving the `v1` tag to a reviewed commit on `main`. Changes on `main` reach `@main` callers immediately and `@v1` callers only after this.
 

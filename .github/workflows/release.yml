@@ -1,7 +1,9 @@
 # Reusable release workflow: validate a version, take the release notes from
-# CHANGELOG.md, create the tag and the GitHub Release. Called by the thin,
-# manually dispatched release.yml of each repository, which then runs its own
-# build, publish and verify jobs with `needs: release`.
+# CHANGELOG.md and create a DRAFT GitHub Release. Called by the thin, manually
+# dispatched release.yml of each repository, which then runs its own build,
+# publish and verify jobs with `needs: release`, and finally calls
+# release-publish.yml to publish the draft. The tag only appears on that last
+# step, so a failed build leaves a draft, never a tag without artifacts.
 #
 #   jobs:
 #     release:
@@ -11,6 +13,14 @@
 #       with:
 #         version: ${{ inputs.version }}
 #         tag_prefix: "v"
+#     ...build, publish, verify...
+#     publish-release:
+#       needs: [release, verify]
+#       uses: EduIDE/.github/.github/workflows/release-publish.yml@main
+#       permissions:
+#         contents: write
+#       with:
+#         tag: ${{ needs.release.outputs.tag }}
 #
 # A tag or Release created with GITHUB_TOKEN starts no other workflow, so
 # everything a release needs must be called from the caller's release.yml.
@@ -133,7 +143,8 @@ jobs:
             exit 1
           fi
           if [[ "$prerelease" == true ]]; then
-            last_rc=$(grep -F -- "${VERSION%%-*}-rc." <<<"$versions" | highest || true)
+            core="${VERSION%%-*}"
+            last_rc=$(grep -E -- "^${core//./[.]}-rc[.]" <<<"$versions" | highest || true)
             if [[ -n "$last_rc" ]] && ! newer "$VERSION" "$last_rc"; then
               echo "::error::${VERSION} is not newer than the last release candidate ${last_rc}."
               exit 1
@@ -170,8 +181,12 @@ jobs:
           want="${HEADING//\{version\}/$VERSION}"
           section "$want" > "$RUNNER_TEMP/notes.md"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" && [[ "$PRERELEASE" == true ]]; then
-            # A release candidate usually has no section of its own yet.
-            { echo "Release candidate. Changes since the last release:"; echo; section "## [Unreleased]"; } > "$RUNNER_TEMP/notes.md"
+            # A release candidate usually has no section of its own yet. The
+            # introduction is added only when Unreleased has content.
+            section "## [Unreleased]" > "$RUNNER_TEMP/unreleased.md"
+            if grep -q '[^[:space:]]' "$RUNNER_TEMP/unreleased.md"; then
+              { echo "Release candidate. Changes since the last release:"; echo; cat "$RUNNER_TEMP/unreleased.md"; } > "$RUNNER_TEMP/notes.md"
+            fi
           fi
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
             echo "::error file=${CHANGELOG}::No '${want}' section with content. Add it in the release pull request."
@@ -179,19 +194,29 @@ jobs:
           fi
           cat "$RUNNER_TEMP/notes.md"
 
-      # --target creates the tag server side on the dispatched commit, so no
-      # git identity and no push are needed. A prerelease is never "latest".
-      - name: Tag and GitHub Release
+      # A draft has no tag yet: --target records the commit, and GitHub creates
+      # the tag there when release-publish.yml publishes the draft. A draft of
+      # the same tag left by an earlier failed dispatch is replaced, so a new
+      # dispatch never duplicates it. "Re-run failed jobs" does not rerun this
+      # job and keeps using the existing draft.
+      - name: Draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           set -euo pipefail
+          stale=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.draft and .tag_name == \"${TAG}\") | .id")
+          for id in $stale; do
+            echo "::notice::Replacing the draft ${TAG} (${id}) of an earlier run."
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}"
+          done
           flags=()
           [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
+            --draft \
             --target "$GITHUB_SHA" \
             --title "$TAG" \
             --notes-file "$RUNNER_TEMP/notes.md" \
