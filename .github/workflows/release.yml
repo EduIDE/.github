@@ -167,14 +167,14 @@ jobs:
           section() {
             awk -v h="$1" 'index($0, h) == 1 { found = 1; next } found && /^## / { exit } found' "$CHANGELOG"
           }
-          heading="${HEADING//\{version\}/$VERSION}"
-          section "$heading" > "$RUNNER_TEMP/notes.md"
+          want="${HEADING//\{version\}/$VERSION}"
+          section "$want" > "$RUNNER_TEMP/notes.md"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" && [[ "$PRERELEASE" == true ]]; then
             # A release candidate usually has no section of its own yet.
             { echo "Release candidate. Changes since the last release:"; echo; section "## [Unreleased]"; } > "$RUNNER_TEMP/notes.md"
           fi
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
-            echo "::error file=${CHANGELOG}::No '${heading}' section with content. Add it in the release pull request."
+            echo "::error file=${CHANGELOG}::No '${want}' section with content. Add it in the release pull request."
             exit 1
           fi
           cat "$RUNNER_TEMP/notes.md"
