@@ -14,7 +14,7 @@ jobs:
     name: Validate shared Renovate config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # renovate-config.json is extended by every repo in the org, so a typo here
       # breaks all of them at once. The version is pinned deliberately: an
       # unpinned `npx renovate` resolves to whatever is in the npx cache, which
@@ -33,22 +33,27 @@ jobs:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run actionlint
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash)
+          tarball=actionlint_1.7.7_linux_amd64.tar.gz
+          curl -fsSL -o "$tarball" "https://github.com/rhysd/actionlint/releases/download/v1.7.7/$tarball"
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" actionlint
           ./actionlint -color
 
   test:
     name: Tag derivation tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install yq
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          set -euo pipefail
+          wget -qO yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          echo "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7  yq" | sha256sum -c -
+          sudo install -m 755 yq /usr/local/bin/yq
       - name: Run tests
         run: ./tests/test-derive-tags.sh
 
@@ -56,11 +61,13 @@ jobs:
     name: Tag format tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install yq
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          set -euo pipefail
+          wget -qO yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          echo "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7  yq" | sha256sum -c -
+          sudo install -m 755 yq /usr/local/bin/yq
       - name: Run tests
         run: ./tests/test-tag-format.sh
 
@@ -68,6 +75,10 @@ jobs:
     name: Renovate custom manager tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run tests
         run: ./tests/test-renovate-managers.sh
+
+  secret-scan:
+    name: Secret scan
+    uses: ./.github/workflows/secret-scan.yml

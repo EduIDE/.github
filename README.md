@@ -125,6 +125,48 @@ invisible to a read-only token.
 A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
 caller must run its publish jobs itself.
 
+### `secret-scan.yml`
+
+Runs [gitleaks](https://github.com/gitleaks/gitleaks) over the commits a pull
+request or push adds, not the whole history. The binary is downloaded from the
+release and verified against a pinned sha256 (gitleaks-action needs a paid
+licence for organisation repositories). Findings are redacted in the log. No
+inputs, no secrets.
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  secret-scan:
+    uses: EduIDE/.github/.github/workflows/secret-scan.yml@main
+```
+
+A PR scans `base..head`, a push scans `before..after`. A new branch, a force
+push, a manual or scheduled run scans everything not yet on the default branch.
+`merge_group` events are not supported: call the workflow on `pull_request` and
+`push` only.
+
+Repo-specific allowlists go in `.gitleaks.toml` and `.gitleaksignore` in the
+caller. On pull requests both are read from the **base** commit, so a PR cannot
+weaken its own scan; changes to them take effect after they are merged.
+
+To bump gitleaks, change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` together.
+
+## Action pinning
+
+Every third-party action in this repo is pinned by commit SHA with the tag in a
+trailing comment (`uses: owner/action@<sha> # v1.2.3`). The shared Renovate
+preset extends `helpers:pinGitHubActionDigests`, so all EduIDE repos get the same
+treatment and Renovate keeps the digests current.
+
+Actions owned by `EduIDE/**`, including the reusable workflows above, are
+deliberately excluded: they stay on `@main` or `@v1`. Pinning them by digest
+would turn every change in this repo into a Renovate PR in every consumer. The
+trust boundary is the same organisation, so protect `main` and the `v1` tag here
+(branch protection, immutable releases) instead.
+
 ## Tests
 
 ```bash
@@ -135,6 +177,12 @@ The test extracts the tag-derivation shell directly out of the workflow YAML and
 executes it, so it cannot drift from what runs in CI.
 
 ## Versioning
+
+`v1` is a moving tag. A maintainer advances it by hand to a reviewed commit on
+`main` after a non-breaking change (`git tag -f v1 <sha> && git push -f origin v1`
+by a maintainer allowed to update it by the tag ruleset). Branch and tag rulesets
+on `main` and `v1` should require review for `main` and restrict `v1` updates to
+maintainers.
 
 Consumers should pin the `v1` tag. Breaking changes to inputs or outputs get a
 new major tag.

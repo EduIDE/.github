@@ -13,7 +13,8 @@
     ":semanticCommitTypeAll(chore)",
     "abandonments:recommended",
     "customManagers:githubActionsVersions",
-    "customManagers:dockerfileVersions"
+    "customManagers:dockerfileVersions",
+    "helpers:pinGitHubActionDigests"
   ],
 
   "timezone": "Europe/Berlin",
@@ -147,9 +148,15 @@
     },
 
     {
+      "description": "Actions owned by the EduIDE org (including the reusable workflows in this repo, referenced at @main or @v1) stay on their moving ref. Digest-pinning them would turn every change here into a Renovate PR in every repo. The trust boundary is the same org; protect main and the v1 tag here instead.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["EduIDE/**"],
+      "pinDigests": false
+    },
+    {
       "description": "All GitHub Actions in one PR.",
       "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
       "groupName": "github actions",
       "groupSlug": "github-actions",
       "semanticCommitType": "ci",
