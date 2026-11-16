@@ -9,6 +9,9 @@ no toolchain installation, the same environment for everyone.
 📖 **[Documentation](https://eduide.github.io/Docs/)** - for students,
 instructors, administrators and developers.
 
+📊 **[Dashboard](https://eduide.github.io/dashboard/)** - open pull requests,
+open issues and release state of every public repository, on one page.
+
 ## The main repositories
 
 | Repository | What it is |
