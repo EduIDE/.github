@@ -35,7 +35,8 @@ The leading `v` is stripped from release tags so that a Helm chart's
 
 **Inputs** (all optional except `image-name`): `image-name`, `docker-file`,
 `docker-context`, `ref`, `build-args`, `labels`, `image-tag`, `registry`,
-`cache-image`, `no-cache`, `free-disk-space`, `build-amd64`, `build-arm64`.
+`cache-image`, `no-cache`, `stamp-app-version` (append `APP_VERSION=<base_tag>` to the
+build args, for images that embed their version), `free-disk-space`, `build-amd64`, `build-arm64`.
 
 **Outputs:** `image_tag`, `base_tag`, `sha_tag`, `cache_tag`, `image_repo`.
 Use `sha_tag` when one image must build on top of another:
@@ -125,6 +126,25 @@ invisible to a read-only token.
 A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
 caller must run its publish jobs itself.
 
+### `check-tag-format.yml`
+
+Fails unless a git tag is `vMAJOR.MINOR.PATCH`, optionally with a `-prerelease`
+or `+build` suffix (`v2.0.0`, `v2.1.0-rc.1`). It rejects `v.1.1.1`, `1.1.0` and
+`V1.1.0` and says how to fix the spelling. The image tag and chart version are
+the tag without the `v`. Input `tag` (optional) defaults to the pushed tag ref;
+on a non-tag ref the job passes without checking.
+
+```yaml
+on:
+  push:
+    tags: ["**"]
+jobs:
+  tag-format:
+    uses: EduIDE/.github/.github/workflows/check-tag-format.yml@main
+```
+
+`./tests/test-tag-format.sh` covers the grammar.
+
 ### `secret-scan.yml`
 
 Runs [gitleaks](https://github.com/gitleaks/gitleaks) over the commits a pull
@@ -171,6 +191,8 @@ trust boundary is the same organisation, so protect `main` and the `v1` tag here
 
 ```bash
 ./tests/test-derive-tags.sh   # requires yq
+./tests/test-tag-format.sh    # requires yq
+./tests/test-renovate-managers.sh   # requires node
 ```
 
 The test extracts the tag-derivation shell directly out of the workflow YAML and

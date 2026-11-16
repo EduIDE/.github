@@ -3,7 +3,7 @@
 Dependency and security updates for the EduIDE org are driven by [Renovate](https://docs.renovatebot.com/).
 All policy lives in one file: [`renovate-config.json`](../renovate-config.json) at the root of this repo.
 
-Every managed repo carries a three-line `renovate.json` that points at it:
+Every managed repo carries a short `renovate.json` that points at it:
 
 ```json
 {
@@ -13,7 +13,7 @@ Every managed repo carries a three-line `renovate.json` that points at it:
 ```
 
 Change the shared file and the change reaches every repo. That is the whole idea - resist
-the urge to solve a problem by editing eleven repo-local configs.
+the urge to solve a problem by editing every repo-local config.
 
 ## What the policy does
 
@@ -31,7 +31,7 @@ terraform, eclipse theia, quarkus.
 
 ### Why no automerge
 
-Six of the eleven repos have no tests at all, and two more have tests CI does not run.
+Several repos have no tests at all, and some have tests CI does not run.
 Compile-level signal catches a dependency that fails to build; it does not catch one that
 builds and misbehaves. Turning automerge on is a one-line change to the shared preset once
 the test situation improves - `"automerge": true` under whichever `packageRules` entry you
@@ -59,7 +59,7 @@ run. To force one repo to re-read it immediately, tick the "Check this box to tr
 request for Renovate to run again" checkbox at the bottom of that repo's Dependency
 Dashboard issue.
 
-## Test a change before it hits all eleven repos
+## Test a change before it hits every repo
 
 The CI job in this repo runs `renovate-config-validator --strict` on every PR that touches
 the preset. That catches schema errors, unknown options and deprecations - it does **not**
@@ -77,7 +77,7 @@ then drop the suffix.
 To see what Renovate would do without writing anything:
 
 ```bash
-LOG_LEVEL=debug npx --yes renovate@44.46.7 \
+LOG_LEVEL=debug npx --yes renovate@<version> \
   --platform=github --token="$GITHUB_TOKEN" \
   --dry-run=full --schedule="" --require-config=optional \
   EduIDE/EduIDE EduIDE/EduIDE-deployment
@@ -88,13 +88,13 @@ Grep the output for `Dependency extraction complete` and check the per-manager f
 This is the only reliable way to verify a custom manager, because a regex that matches
 nothing fails silently and looks identical to a regex that found nothing to update.
 
-Pin the version in that command. An unpinned `npx renovate` resolves to whatever is sitting
+Pin the version in that command (use the `RENOVATE_VERSION` pinned in `.github/workflows/ci.yml`). An unpinned `npx renovate` resolves to whatever is sitting
 in the npx cache, which may be years old and will reject options that are perfectly valid.
 
 ## Custom managers
 
 Some things in this org are invisible to Renovate's built-in managers and need a regex
-manager. One lives here, one lives in a repo:
+manager. Two live in the preset, the rest in the repos that need them:
 
 - **`EduIDE` `theiaPlugins`** pins plugin tarballs by GitHub release URL, in `package.json`
   and in the `images/*/package.json.patch` overlays (data-bridge, theia-cloud-monitor). No
@@ -107,10 +107,15 @@ manager. One lives here, one lives in a repo:
 
 EduIDE GitHub releases (`EduIDE/*`) skip the release-age quarantine, like the
 `ghcr.io/eduide/**` images.
+
+Repo-local managers, defined in the repo's own `renovate.json`:
+
 - **`EduIDE-deployment/environments/*/env.yaml`** carries `spec.platform.chartVersion`.
   These are `eduide.dev/v1 Environment` manifests, so neither `helmv3` nor `helm-values`
   can read them. Covered by that repo's own `renovate.json`, since the file shape is
   specific to it.
+- **`EduIDE-image-mannheim` `Dockerfile`** pins `ARG EDUIDE_VERSION=` to a tag of
+  `ghcr.io/eduide/eduide/java-25-standalone` (docker datasource, semver).
 
 **Before adding a manager here, check the path still exists.** The preset briefly shipped a
 manager for `deployments/*/values.yaml` in EduIDE-deployment, matching a `preloading.images`
