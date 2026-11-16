@@ -1,0 +1,43 @@
+# Publishes the draft GitHub Release that release.yml created. This creates
+# the tag on the released commit. Call it as the last job of a release.yml,
+# after every artifact is published and verified:
+#
+#   publish-release:
+#     needs: [release, verify]
+#     uses: EduIDE/.github/.github/workflows/release-publish.yml@main
+#     permissions:
+#       contents: write
+#     with:
+#       tag: ${{ needs.release.outputs.tag }}
+
+name: Publish release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "The tag output of release.yml"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '"Tagged \(.object.sha)"'
+          {
+            echo "## Released ${TAG}"
+            echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"

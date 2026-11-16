@@ -69,6 +69,62 @@ token), and `docker-secrets` for build-time secrets such as `SENTRY_AUTH_TOKEN`.
   newline into a hyphen. That bug published `1.1.0-` and `1.1.0--375ef32` to
   GHCR before this workflow existed; `tests/test-derive-tags.sh` guards it.
 
+### `release.yml` and `release-publish.yml`
+
+`release.yml` validates a version, takes the release notes from
+`CHANGELOG.md` and creates a **draft** GitHub Release on the dispatched
+commit. Each repository has a thin `release.yml` (`workflow_dispatch`, input
+`version`) that calls it, then runs its own build, publish and verify jobs with
+`needs: release`, and ends with `release-publish.yml`, which publishes the
+draft. The tag only appears at that last step, so a failed build leaves a
+draft and no tag.
+
+```yaml
+jobs:
+  release:
+    uses: EduIDE/.github/.github/workflows/release.yml@main
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}   # X.Y.Z or X.Y.Z-rc.N, no leading v
+      tag_prefix: "v"
+      changelog_heading: "## [{version}]"
+
+  # build, publish and verify jobs with needs: release
+
+  publish-release:
+    needs: [release, verify]
+    uses: EduIDE/.github/.github/workflows/release-publish.yml@main
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+```
+
+**Inputs of `release.yml`:** `version` (required), `tag_prefix` (default `v`),
+`changelog_path` (default `CHANGELOG.md`), `changelog_heading` (default
+`## [{version}]`, `{version}` is replaced), `version_check` (optional bash run
+in the checkout with `$VERSION` set; a non-zero exit fails; skipped for release
+candidates). Pass `version_check` only where a file in the repository states
+the version (a `Chart.yaml`) or another invariant of the released commit must
+hold; repositories that stamp the version at build time pass none.
+
+**Outputs:** `tag`, `prerelease` (`true`/`false`), `sha`.
+
+**Refuses:** a malformed version, an existing tag, a version not newer than the
+last release with the same prefix, a stable version dispatched from a branch
+other than `main`, and a missing or empty CHANGELOG section. A release
+candidate without a section of its own falls back to `## [Unreleased]`.
+
+**Reruns:** "Re-run failed jobs" keeps the draft of the first attempt. A new
+dispatch of the same version replaces a leftover draft of that tag, so drafts
+never pile up. Asset uploads (`gh release upload`) and `gh release view` work
+on a draft by tag name, but only for a job with `contents: write`: a draft is
+invisible to a read-only token.
+
+A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
+caller must run its publish jobs itself.
+
 ## Tests
 
 ```bash
