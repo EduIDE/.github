@@ -89,12 +89,25 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "theiaPlugins in EduIDE/package.json pins plugin tarballs by GitHub release URL. No built-in manager reads custom manifest keys.",
-      "managerFilePatterns": ["/(^|/)package\\.json$/"],
-      "matchStrings": [
-        "https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/releases/download/(?<currentValue>[^/\"]+)/"
+      "description": [
+        "theiaPlugins in EduIDE pins plugin tarballs by GitHub release URL, in package.json and in the images/*/package.json.patch overlays. No built-in manager reads custom manifest keys.",
+        "The match runs to the end of the URL because the version shows up twice (tag and asset file name). Renovate replaces every occurrence inside the match, so both move together. The optional v is kept outside currentValue so it also matches the unprefixed file name."
       ],
-      "datasourceTemplate": "github-releases"
+      "managerFilePatterns": ["/(^|/)package\\.json(\\.patch)?$/"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/releases/download/v?(?<currentValue>\\d[^/\"]*)/[^\"]+"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Version pins in Helm values files marked with a trailing comment, e.g. `cloud: \"1.3.0\" # renovate: datasource=github-releases depName=EduIDE/EduIDE-Cloud`. Trailing rather than a line above so helm-docs does not pull it into the README.",
+      "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/"],
+      "matchStrings": [
+        "[\\w-]+:[ \\t]*[\"']?(?<currentValue>[^\"'\\s#]+)[\"']?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
     }
   ],
 
@@ -244,7 +257,7 @@
     },
     {
       "description": "First-party EduIDE artifacts follow our own release train - no supply-chain quarantine.",
-      "matchPackageNames": ["ghcr.io/eduide/**", "theiacloud/**"],
+      "matchPackageNames": ["ghcr.io/eduide/**", "theiacloud/**", "/^eduide\\//i"],
       "minimumReleaseAge": null,
       "addLabels": ["eduide"]
     }
