@@ -76,10 +76,13 @@ console.log('\n=== must not match ===');
 for (const [file, line] of [
   ['charts/eduide/values.yaml', '  cloud: "1.3.0"'],
   ['charts/eduide/values.yaml', '  # renovate: datasource=github-releases depName=EduIDE/EduIDE-Cloud'],
+  // Renovate matches against the whole file, so the annotation must not reach back to the previous line.
+  ['charts/eduide/values.yaml', '  bridge: "0.0.17"\n  # renovate: datasource=github-releases depName=EduIDE/EduIDE-Cloud\n  cloud: "1.3.0"'],
   ['images/base-ide/package.json.patch', '"scorpio": "https://open-vsx.org/api/aet-tum/artemis-scorpio/2.1.1/file/aet-tum.artemis-scorpio-2.1.1.vsix",'],
 ]) {
   const r = bump(file, line, '9.9.9');
-  r.error ? ok(`${file}: ${line.trim()}`) : bad(`${file}: should not match ${line.trim()}`);
+  const label = JSON.stringify(line.trim());
+  r.error ? ok(`${file}: ${label}`) : bad(`${file}: should not match ${label}`);
 }
 
 process.exit(failed);
