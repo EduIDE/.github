@@ -14,7 +14,7 @@ jobs:
     name: Validate shared Renovate config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # renovate-config.json is extended by every repo in the org, so a typo here
       # breaks all of them at once. The version is pinned deliberately: an
       # unpinned `npx renovate` resolves to whatever is in the npx cache, which
@@ -33,7 +33,7 @@ jobs:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run actionlint
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
     name: Tag derivation tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
@@ -56,7 +56,7 @@ jobs:
     name: Tag format tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
@@ -68,6 +68,10 @@ jobs:
     name: Renovate custom manager tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run tests
         run: ./tests/test-renovate-managers.sh
+
+  secret-scan:
+    name: Secret scan
+    uses: ./.github/workflows/secret-scan.yml

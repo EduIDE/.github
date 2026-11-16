@@ -125,6 +125,41 @@ invisible to a read-only token.
 A tag or Release created with `GITHUB_TOKEN` starts no other workflow, so the
 caller must run its publish jobs itself.
 
+### `secret-scan.yml`
+
+Runs [gitleaks](https://github.com/gitleaks/gitleaks) over the commits a pull
+request or push adds, not the whole history. The binary is downloaded from the
+release and verified against a pinned sha256 (gitleaks-action needs a paid
+licence for organisation repositories). Findings are redacted in the log. No
+inputs, no secrets.
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  secret-scan:
+    uses: EduIDE/.github/.github/workflows/secret-scan.yml@main
+```
+
+A PR scans `base..head`, a push scans `before..after`, a new branch scans its
+tip commit. To bump gitleaks, change `GITLEAKS_VERSION` and `GITLEAKS_SHA256`
+together. Repo-specific allowlists go in a `.gitleaks.toml` in the caller.
+
+## Action pinning
+
+Every third-party action in this repo is pinned by commit SHA with the tag in a
+trailing comment (`uses: owner/action@<sha> # v1.2.3`). The shared Renovate
+preset extends `helpers:pinGitHubActionDigests`, so all EduIDE repos get the same
+treatment and Renovate keeps the digests current.
+
+Actions owned by `EduIDE/**`, including the reusable workflows above, are
+deliberately excluded: they stay on `@main` or `@v1`. Pinning them by digest
+would turn every change in this repo into a Renovate PR in every consumer. The
+trust boundary is the same organisation, so protect `main` and the `v1` tag here
+(branch protection, immutable releases) instead.
+
 ## Tests
 
 ```bash
