@@ -96,8 +96,17 @@ in the npx cache, which may be years old and will reject options that are perfec
 Some things in this org are invisible to Renovate's built-in managers and need a regex
 manager. One lives here, one lives in a repo:
 
-- **`EduIDE/package.json` `theiaPlugins`** pins plugin tarballs by GitHub release URL. No
-  built-in manager reads custom manifest keys. Covered by the preset.
+- **`EduIDE` `theiaPlugins`** pins plugin tarballs by GitHub release URL, in `package.json`
+  and in the `images/*/package.json.patch` overlays (data-bridge, theia-cloud-monitor). No
+  built-in manager reads custom manifest keys. Covered by the preset. The match covers the
+  whole URL, so the tag and the version in the asset file name move together.
+- **Helm values pins** such as `versions.cloud` in EduIDE-Helm opt in with a trailing
+  comment: `cloud: "1.3.0" # renovate: datasource=github-releases depName=EduIDE/EduIDE-Cloud`.
+  Covered by the preset for any `values*.yaml`. Keep the comment on the same line: a comment
+  above the key ends up in the helm-docs README.
+
+EduIDE GitHub releases (`EduIDE/*`) skip the release-age quarantine, like the
+`ghcr.io/eduide/**` images.
 - **`EduIDE-deployment/environments/*/env.yaml`** carries `spec.platform.chartVersion`.
   These are `eduide.dev/v1 Environment` manifests, so neither `helmv3` nor `helm-values`
   can read them. Covered by that repo's own `renovate.json`, since the file shape is
