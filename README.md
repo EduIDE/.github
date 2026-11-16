@@ -143,9 +143,16 @@ jobs:
     uses: EduIDE/.github/.github/workflows/secret-scan.yml@main
 ```
 
-A PR scans `base..head`, a push scans `before..after`, a new branch scans its
-tip commit. To bump gitleaks, change `GITLEAKS_VERSION` and `GITLEAKS_SHA256`
-together. Repo-specific allowlists go in a `.gitleaks.toml` in the caller.
+A PR scans `base..head`, a push scans `before..after`. A new branch, a force
+push, a manual or scheduled run scans everything not yet on the default branch.
+`merge_group` events are not supported: call the workflow on `pull_request` and
+`push` only.
+
+Repo-specific allowlists go in `.gitleaks.toml` and `.gitleaksignore` in the
+caller. On pull requests both are read from the **base** commit, so a PR cannot
+weaken its own scan; changes to them take effect after they are merged.
+
+To bump gitleaks, change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` together.
 
 ## Action pinning
 
@@ -170,6 +177,12 @@ The test extracts the tag-derivation shell directly out of the workflow YAML and
 executes it, so it cannot drift from what runs in CI.
 
 ## Versioning
+
+`v1` is a moving tag. A maintainer advances it by hand to a reviewed commit on
+`main` after a non-breaking change (`git tag -f v1 <sha> && git push -f origin v1`
+by a maintainer allowed to update it by the tag ruleset). Branch and tag rulesets
+on `main` and `v1` should require review for `main` and restrict `v1` updates to
+maintainers.
 
 Consumers should pin the `v1` tag. Breaking changes to inputs or outputs get a
 new major tag.

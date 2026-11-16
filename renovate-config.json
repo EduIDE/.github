@@ -156,7 +156,7 @@
     {
       "description": "All GitHub Actions in one PR.",
       "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
       "groupName": "github actions",
       "groupSlug": "github-actions",
       "semanticCommitType": "ci",
