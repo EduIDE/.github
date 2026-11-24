@@ -38,10 +38,16 @@ the workspace: clone, starter templates, Artemis integration),
 
 EduIDE 3.0 replaced the Java control plane, which began as a fork of Eclipse
 Theia Cloud, with the Go control plane. These repositories get no new releases:
-EduIDE-Cloud, EduIDE-Landing-Page, EduIDE-data-bridge, EduIDE-pool-scaler,
-workspace-garbage-collector, theia-lite-git-proxy and EduIDE-lsp-extension.
-See [Projects Overview](https://eduide.github.io/Docs/developer/projects/projects-overview)
-for what replaced each of them.
+
+| Repository | Replaced by |
+|---|---|
+| EduIDE-Cloud | operator, service, authz and agent of EduIDE-control-plane |
+| EduIDE-Landing-Page | the landing page in EduIDE-control-plane |
+| EduIDE-pool-scaler | the pool scaler in EduIDE-control-plane |
+| theia-lite-git-proxy | the git proxy in EduIDE-control-plane |
+| workspace-garbage-collector | the workspace expiry of the operator |
+| EduIDE-data-bridge | the `eduide-session` extension |
+| EduIDE-lsp-extension | language servers running inside the IDE image |
 
 ## Running it yourself
 
