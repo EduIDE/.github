@@ -21,17 +21,17 @@ Please include what you can:
 
 ## Scope
 
-EduIDE runs untrusted student code in per-session containers on a shared
+EduIDE runs untrusted student code in per-session pods on a shared
 Kubernetes cluster. Findings that are especially relevant:
 
-- escaping a session container, or reaching another user's session or workspace
+- escaping a session pod, or reaching another user's session or workspace
 - reading another user's workspace storage
-- bypassing Keycloak authentication or the oauth2-proxy layer in front of a session
-- reaching the operator, the REST service, or their service accounts from inside a session
-- privilege escalation via the admin API token
+- bypassing Keycloak authentication or the authz check at the gateway in front of a session
+- reaching the operator, the service, or their service accounts from inside a session
+- privilege escalation to the admin role or the admin API
 
 Denial of service caused by a session consuming its own quota is expected
-behaviour, not a vulnerability. Resource limits are enforced per AppDefinition.
+behaviour, not a vulnerability. Resource limits are enforced per template.
 
 ## What to expect
 
