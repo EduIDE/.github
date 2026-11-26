@@ -15,7 +15,7 @@ jobs:
   build:
     uses: EduIDE/.github/.github/workflows/build-and-push-docker-image.yml@v1
     with:
-      image-name: eduide/eduide-cloud/service
+      image-name: eduide/eduide-control-plane/service
       docker-file: dockerfiles/service/Dockerfile
     secrets: inherit
 ```

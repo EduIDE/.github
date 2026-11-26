@@ -24,7 +24,7 @@
 #     build:
 #       uses: EduIDE/.github/.github/workflows/build-and-push-docker-image.yml@v1
 #       with:
-#         image-name: eduide/eduide-cloud/service
+#         image-name: eduide/eduide-control-plane/service
 #         docker-file: dockerfiles/service/Dockerfile
 #       secrets: inherit
 # ==============================================================================
@@ -37,7 +37,7 @@ on:
       image-name:
         type: string
         required: true
-        description: "Image path WITHOUT registry, e.g. eduide/eduide-cloud/service"
+        description: "Image path WITHOUT registry, e.g. eduide/eduide-control-plane/service"
       docker-file:
         type: string
         default: Dockerfile

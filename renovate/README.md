@@ -27,7 +27,7 @@ the urge to solve a problem by editing every repo-local config.
 
 Groups, roughly one PR each: github actions, npm dependencies, npm dev dependencies,
 java dependencies, go modules, container base images, helm charts, deployed image tags,
-terraform, eclipse theia, quarkus.
+terraform, eclipse theia.
 
 ### Why no automerge
 
@@ -136,8 +136,8 @@ upstream; not worth the fragility for two pins. Revisit if open-vsx support land
 Two different causes, and only one of them is fixable in git.
 
 **It is a fork.** Renovate skips forked repositories by default in autodiscover mode, which is
-how the hosted app runs - a valid `renovate.json` does not override this. `EduIDE`,
-`EduIDE-Cloud` and `EduIDE-Helm` are forks. The preset sets `"forkProcessing": "enabled"` to
+how the hosted app runs - a valid `renovate.json` does not override this. `EduIDE` and
+`EduIDE-Helm` are forks. The preset sets `"forkProcessing": "enabled"` to
 cover them. That is safe only while the app installation is scoped to a **selected**
 repository list; if someone widens it to "All repositories", this setting would also start
 processing genuine upstream mirrors like `theia`.
@@ -160,7 +160,6 @@ when it finds a repo is already onboarded, and it does not disable anything.
 - **`rangeStrategy` is `auto`**, which means a caret range like `^4.10.5` produces no PR when
   4.11.0 ships; it reaches the lockfile via monthly `lockFileMaintenance` instead. This keeps
   the noise down. Switch to `"bump"` if you would rather see manifest ranges move every week.
-- **`-SNAPSHOT` versions and `org.eclipse.theia.cloud:*` are disabled** - they are reactor
-  modules built in-repo, not registry artifacts.
+- **`-SNAPSHOT` versions are disabled** - they are built in-repo, not registry artifacts.
 - **`engines.*`, `@types/vscode` and the `go` directive are frozen.** They are compatibility
   floors. Raising them is a decision, not a chore.

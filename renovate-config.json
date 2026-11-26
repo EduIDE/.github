@@ -4,7 +4,7 @@
     "EduIDE org-wide Renovate policy. Single source of truth for every repo.",
     "Consume it with: { \"extends\": [\"local>EduIDE/.github:renovate-config\"] }",
     "Policy: no automerge anywhere. Security fixes raised immediately, everything else batched Monday morning.",
-    "forkProcessing is enabled because EduIDE, EduIDE-Cloud and EduIDE-Helm are GitHub forks, and Renovate skips forks by default in autodiscover mode - which is how the Mend hosted app runs. They are actively developed products, not upstream mirrors. This is safe org-wide only because the app installation is scoped to a selected repository list.",
+    "forkProcessing is enabled because EduIDE and EduIDE-Helm are GitHub forks, and Renovate skips forks by default in autodiscover mode - which is how the Mend hosted app runs. They are actively developed products, not upstream mirrors. This is safe org-wide only because the app installation is scoped to a selected repository list.",
     "See renovate/README.md in this repo for how to change or test this file."
   ],
 
@@ -136,12 +136,6 @@
       "enabled": false
     },
     {
-      "description": "Internal Theia Cloud Java modules are reactor modules, not external deps.",
-      "matchDatasources": ["maven"],
-      "matchPackageNames": ["/^org\\.eclipse\\.theia\\.cloud:/"],
-      "enabled": false
-    },
-    {
       "description": "Pin / digest / rollback updates have no release timestamp, so exempt them from the quarantine.",
       "matchUpdateTypes": ["pin", "pinDigest", "digest", "rollback"],
       "minimumReleaseAge": null
@@ -253,14 +247,6 @@
       "groupSlug": "theia",
       "dependencyDashboardApproval": true,
       "addLabels": ["theia"]
-    },
-    {
-      "description": "Quarkus platform BOM and extensions must move as one.",
-      "matchDatasources": ["maven"],
-      "matchPackageNames": ["/^io\\.quarkus[.:]/"],
-      "groupName": "quarkus",
-      "groupSlug": "quarkus",
-      "addLabels": ["java"]
     },
     {
       "description": "First-party EduIDE artifacts follow our own release train - no supply-chain quarantine.",
