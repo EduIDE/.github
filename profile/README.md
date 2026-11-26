@@ -17,19 +17,15 @@ open issues and release state of every public repository, on one page.
 | Repository | What it is |
 |---|---|
 | [EduIDE](https://github.com/EduIDE/EduIDE) | The IDE itself. Builds the per-language Theia images students work in. |
-| [EduIDE-Cloud](https://github.com/EduIDE/EduIDE-Cloud) | The control plane. Kubernetes operator and REST service that create and manage sessions. |
-| [EduIDE-Landing-Page](https://github.com/EduIDE/EduIDE-Landing-Page) | Where users pick an environment and launch a session. |
+| [EduIDE-control-plane](https://github.com/EduIDE/EduIDE-control-plane) | The control plane: operator, REST service, landing page and pool scaler that create and manage sessions. |
 | [EduIDE-Helm](https://github.com/EduIDE/EduIDE-Helm) | The Helm charts. How you install EduIDE on a cluster. |
 | [EduIDE-deployment](https://github.com/EduIDE/EduIDE-deployment) | The TUM installations: environment configuration and deployment workflows. |
 | [Docs](https://github.com/EduIDE/Docs) | The documentation site. |
 | [theia-scale-tests](https://github.com/EduIDE/theia-scale-tests) | End-to-end and scalability tests. |
 
 Supporting components: [scorpio](https://github.com/EduIDE/scorpio) (Artemis
-integration extension), [EduIDE-data-bridge](https://github.com/EduIDE/EduIDE-data-bridge)
-(runtime data injection), [EduIDE-shared-cache](https://github.com/EduIDE/EduIDE-shared-cache)
-(shared Gradle and Bazel build cache),
-[workspace-garbage-collector](https://github.com/EduIDE/workspace-garbage-collector)
-(reclaims abandoned workspace storage).
+integration extension) and [EduIDE-shared-cache](https://github.com/EduIDE/EduIDE-shared-cache)
+(shared Gradle and Bazel build cache).
 
 ## Running it yourself
 
